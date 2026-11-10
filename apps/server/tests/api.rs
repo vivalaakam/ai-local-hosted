@@ -158,6 +158,51 @@ fn client() -> reqwest::Client {
 }
 
 #[tokio::test(flavor = "current_thread")]
+async fn user_can_only_manage_own_system_prompt() {
+    let world = world().await;
+    let client = client();
+    let username = format!("prompt{}", uuid::Uuid::new_v4().simple());
+    let registered: Value = client
+        .post(format!("{}/oauth/register", world.base))
+        .json(&json!({"username": username, "password": "correct-horse"}))
+        .send()
+        .await
+        .unwrap()
+        .json()
+        .await
+        .unwrap();
+    let access_token = registered["access_token"].as_str().unwrap();
+    let put = client
+        .put(format!("{}/api/system-prompt", world.base))
+        .bearer_auth(access_token)
+        .json(&json!({"content": "Keep answers concise."}))
+        .send()
+        .await
+        .unwrap();
+    assert_eq!(put.status(), 204);
+
+    let body: Value = client
+        .get(format!("{}/api/system-prompt", world.base))
+        .bearer_auth(access_token)
+        .send()
+        .await
+        .unwrap()
+        .json()
+        .await
+        .unwrap();
+    assert_eq!(body["content"], "Keep answers concise.");
+
+    let clear = client
+        .put(format!("{}/api/system-prompt", world.base))
+        .bearer_auth(access_token)
+        .json(&json!({"content": null}))
+        .send()
+        .await
+        .unwrap();
+    assert_eq!(clear.status(), 204);
+}
+
+#[tokio::test(flavor = "current_thread")]
 async fn rejects_missing_token_and_reports_health() {
     let world = world().await;
     let client = client();

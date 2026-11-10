@@ -158,6 +158,29 @@ pub struct BegunTurn {
     pub history: Vec<CompletionMessage>,
 }
 
+#[derive(Debug, Clone, Default, PartialEq, Eq)]
+pub struct SystemPromptLayers {
+    pub global: Option<String>,
+    pub assigned: Option<String>,
+    pub own: Option<String>,
+}
+
+impl SystemPromptLayers {
+    pub fn effective(&self) -> Vec<String> {
+        [
+            self.global.as_deref(),
+            self.assigned.as_deref(),
+            self.own.as_deref(),
+        ]
+        .into_iter()
+        .flatten()
+        .map(str::trim)
+        .filter(|prompt| !prompt.is_empty())
+        .map(str::to_string)
+        .collect()
+    }
+}
+
 #[derive(Debug, Clone)]
 pub struct MessageFinal {
     pub id: Uuid,
@@ -226,6 +249,10 @@ const MIGRATIONS: &[(&str, &str)] = &[
     (
         "0004_provider_uuid",
         include_str!("../../../migrations/0004_provider_uuid.sql"),
+    ),
+    (
+        "0005_system_prompts",
+        include_str!("../../../migrations/0005_system_prompts.sql"),
     ),
 ];
 
@@ -515,6 +542,62 @@ impl Store {
         )
         .await?;
         row.as_ref().map(user_from).transpose()
+    }
+
+    pub async fn system_prompt_layers(
+        &self,
+        user_id: Uuid,
+    ) -> Result<SystemPromptLayers, StorageError> {
+        let rows = query::all(
+            &self.db,
+            "SELECT user_id, scope, content FROM system_prompts
+             WHERE (user_id = $1 AND scope IN ('assigned', 'self'))
+                OR (user_id = $2 AND scope = 'global')",
+            vec![Value::from(user_id), Value::from(LEGACY_USER_ID)],
+        )
+        .await?;
+        let mut layers = SystemPromptLayers::default();
+        for row in rows {
+            let scope: String = row.try_get("", "scope")?;
+            let content: String = row.try_get("", "content")?;
+            match scope.as_str() {
+                "global" => layers.global = Some(content),
+                "assigned" => layers.assigned = Some(content),
+                "self" => layers.own = Some(content),
+                _ => {}
+            }
+        }
+        Ok(layers)
+    }
+
+    pub async fn set_own_system_prompt(
+        &self,
+        user_id: Uuid,
+        content: Option<&str>,
+    ) -> Result<(), StorageError> {
+        let content = content.map(str::trim).filter(|value| !value.is_empty());
+        match content {
+            Some(content) => {
+                query::exec(
+                    &self.db,
+                    "INSERT INTO system_prompts (user_id, scope, content)
+                     VALUES ($1, 'self', $2)
+                     ON CONFLICT (user_id, scope) DO UPDATE SET
+                        content = EXCLUDED.content, updated_at = now()",
+                    vec![Value::from(user_id), Value::from(content)],
+                )
+                .await?;
+            }
+            None => {
+                query::exec(
+                    &self.db,
+                    "DELETE FROM system_prompts WHERE user_id = $1 AND scope = 'self'",
+                    vec![Value::from(user_id)],
+                )
+                .await?;
+            }
+        }
+        Ok(())
     }
 
     pub async fn put_token(
@@ -1588,7 +1671,7 @@ fn statements(sql: &str) -> Vec<String> {
 
 #[cfg(test)]
 mod tests {
-    use super::normalize_protocol;
+    use super::{SystemPromptLayers, normalize_protocol};
 
     #[test]
     fn protocol_alias() {
@@ -1596,5 +1679,15 @@ mod tests {
         assert_eq!(normalize_protocol("antropic"), Some("anthropic"));
         assert_eq!(normalize_protocol("anthropic"), Some("anthropic"));
         assert_eq!(normalize_protocol("gemini"), None);
+    }
+
+    #[test]
+    fn system_prompt_layers_keep_server_precedence() {
+        let layers = SystemPromptLayers {
+            global: Some("global".into()),
+            assigned: Some("assigned".into()),
+            own: Some("own".into()),
+        };
+        assert_eq!(layers.effective(), ["global", "assigned", "own"]);
     }
 }

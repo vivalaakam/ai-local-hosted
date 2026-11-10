@@ -223,6 +223,12 @@ Rust Matrix-клиент: `rivet-core` (стор и клиент), `rivet-ui` (�
 - `system_prompt` текст null
 - `created_at`, `updated_at`, `archived_at` null
 
+`system_prompts`
+
+- `user_id`, `scope` — первичный ключ. Служебный пользователь `00000000-0000-0000-0000-000000000001` может иметь только `scope = global`; у реального пользователя бывают `assigned` и `self`.
+- `content`, `updated_at`
+- На каждый запрос сервер добавляет непустые слои перед клиентскими системными сообщениями в порядке `global`, `assigned`, `self`. Оператор сервера задаёт `global` и `assigned` напрямую в БД; API пользователя читает и меняет только его `self`.
+
 `messages`
 
 - `id` uuid
@@ -336,6 +342,8 @@ SQLite десктопа, отдельный файл в каталоге дан�
 `PATCH /api/conversations/:id` — title, model, system_prompt, archived.
 
 `DELETE /api/conversations/:id` — удаляет разговор и сообщения.
+
+`GET /api/system-prompt` возвращает собственный слой текущего пользователя. `PUT /api/system-prompt` принимает `{ content: string | null }`: строка записывает `self`, `null` или пустая строка его удаляет. Глобальный и назначенный слои этим API недоступны.
 
 `POST /api/conversations/:id/messages`
 

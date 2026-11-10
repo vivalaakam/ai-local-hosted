@@ -2,9 +2,9 @@ use std::sync::Arc;
 use std::time::Instant;
 
 use alh_core::{
-    AnthropicEncoder, ChatProvider, CompletionRequest, OpenAiEncoder, ResponsesEncoder,
-    estimate_request_tokens, parse_anthropic_message, parse_chat_completion, parse_responses,
-    select_context,
+    AnthropicEncoder, ChatProvider, CompletionMessage, CompletionRequest, OpenAiEncoder,
+    ResponsesEncoder, estimate_request_tokens, parse_anthropic_message, parse_chat_completion,
+    parse_responses, select_context,
 };
 use axum::Json;
 use axum::body::Bytes;
@@ -39,6 +39,10 @@ pub fn router(state: Arc<AppState>) -> Router {
         .route("/v1/responses", post(responses))
         .route("/v1/messages", post(messages))
         .route("/v1/messages/count_tokens", post(count_tokens))
+        .route(
+            "/api/system-prompt",
+            get(get_own_system_prompt).put(put_own_system_prompt),
+        )
         .route(
             "/api/conversations",
             get(list_conversations).post(create_conversation),
@@ -127,6 +131,9 @@ async fn chat_completions(
         Err(err) => return err.response(),
     };
     let mut request = parsed.request;
+    if let Err(err) = prepend_server_prompts(&state, user, &mut request).await {
+        return err.response();
+    }
     request.model = route.upstream_model.clone();
     let meta = log_meta(user, "agent", "chat_completions", &route, None, None);
     let mut stream = route.provider.stream(request);
@@ -220,6 +227,9 @@ async fn responses(
     };
     let mut request = parsed.incoming.request;
     let transcript = request.messages.clone();
+    if let Err(err) = prepend_server_prompts(&state, user, &mut request).await {
+        return err.response();
+    }
     request.model = route.upstream_model.clone();
     let response_id = new_id("resp");
     let meta = log_meta(user, "agent", "responses", &route, None, None);
@@ -330,6 +340,9 @@ async fn messages(
         Err(err) => return err.anthropic().response(),
     };
     let mut request = parsed.request;
+    if let Err(err) = prepend_server_prompts(&state, user, &mut request).await {
+        return err.anthropic().response();
+    }
     request.model = route.upstream_model.clone();
     let meta = log_meta(user, "agent", "anthropic_messages", &route, None, None);
     let mut stream = route.provider.stream(request);
@@ -387,14 +400,75 @@ async fn messages(
     Sse::new(rx).into_response()
 }
 
-async fn count_tokens(Json(body): Json<Value>) -> Response {
+async fn count_tokens(
+    State(state): State<Arc<AppState>>,
+    Extension(CurrentUser(user)): Extension<CurrentUser>,
+    Json(body): Json<Value>,
+) -> Response {
     match parse_anthropic_message(&body) {
-        Ok(parsed) => Json(json!({
-            "input_tokens": estimate_request_tokens(&parsed.request),
-        }))
-        .into_response(),
+        Ok(mut parsed) => match prepend_server_prompts(&state, user, &mut parsed.request).await {
+            Ok(()) => Json(json!({
+                "input_tokens": estimate_request_tokens(&parsed.request),
+            }))
+            .into_response(),
+            Err(err) => err.anthropic().response(),
+        },
         Err(err) => ApiError::invalid(err.to_string()).anthropic().response(),
     }
+}
+
+#[derive(Deserialize)]
+struct OwnSystemPromptBody {
+    content: Option<String>,
+}
+
+async fn get_own_system_prompt(
+    State(state): State<Arc<AppState>>,
+    Extension(CurrentUser(user)): Extension<CurrentUser>,
+) -> Response {
+    match state.store.system_prompt_layers(user).await {
+        Ok(layers) => Json(json!({ "content": layers.own })).into_response(),
+        Err(err) => ApiError::database(err).response(),
+    }
+}
+
+async fn put_own_system_prompt(
+    State(state): State<Arc<AppState>>,
+    Extension(CurrentUser(user)): Extension<CurrentUser>,
+    Json(body): Json<OwnSystemPromptBody>,
+) -> Response {
+    if body
+        .content
+        .as_ref()
+        .is_some_and(|content| content.chars().count() > 100_000)
+    {
+        return ApiError::invalid("system prompt is too long").response();
+    }
+    match state
+        .store
+        .set_own_system_prompt(user, body.content.as_deref())
+        .await
+    {
+        Ok(()) => StatusCode::NO_CONTENT.into_response(),
+        Err(err) => ApiError::database(err).response(),
+    }
+}
+
+async fn prepend_server_prompts(
+    state: &AppState,
+    user: Uuid,
+    request: &mut CompletionRequest,
+) -> Result<(), ApiError> {
+    let layers = state
+        .store
+        .system_prompt_layers(user)
+        .await
+        .map_err(ApiError::database)?;
+    let prompts = layers.effective();
+    request
+        .messages
+        .splice(0..0, prompts.into_iter().map(CompletionMessage::system));
+    Ok(())
 }
 
 #[derive(Deserialize)]
@@ -652,7 +726,7 @@ async fn post_message(
         tracing::warn!(%err, "conversation route update failed");
     }
     let history = select_context(begun.system_prompt.as_deref(), &begun.history, 40);
-    let request = CompletionRequest {
+    let mut request = CompletionRequest {
         model: route.upstream_model.clone(),
         messages: history,
         tools: Vec::new(),
@@ -662,6 +736,9 @@ async fn post_message(
         max_tokens: None,
         stop: Vec::new(),
     };
+    if let Err(err) = prepend_server_prompts(&state, user, &mut request).await {
+        return fail_message(&state, begun.assistant_message_id, err.code, err).await;
+    }
     let meta = log_meta(
         user,
         "chat",

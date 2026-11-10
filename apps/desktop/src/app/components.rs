@@ -38,15 +38,16 @@ where
         }))
 }
 
-pub(crate) fn text_action<T, Click>(
+pub(crate) fn text_action<T, Label, Click>(
     id: T,
-    label: &'static str,
+    label: Label,
     color: u32,
     cx: &mut Context<ChatWindow>,
     click: Click,
-) -> impl IntoElement + use<T, Click>
+) -> impl IntoElement + use<T, Label, Click>
 where
     T: Into<SharedString>,
+    Label: Into<SharedString>,
     Click: Fn(&mut ChatWindow, &mut Context<ChatWindow>) + 'static,
 {
     div()
@@ -54,7 +55,7 @@ where
         .text_sm()
         .text_color(paint(color))
         .cursor_pointer()
-        .child(label)
+        .child(label.into())
         .on_click(cx.listener(move |this, _: &ClickEvent, _, cx| {
             cx.stop_propagation();
             click(this, cx);

@@ -4,6 +4,7 @@ mod components;
 mod conversation;
 mod events;
 mod navigation;
+mod profile_modal;
 mod provider_modal;
 mod providers;
 mod render;
@@ -12,7 +13,7 @@ mod style;
 
 use alh_desktop::{
     BATCH_INTERVAL, Bubble, ConversationItem, DEFAULT_SERVER_URL, DesktopSession, Feed, LocalDb,
-    ProviderEndpoint, SessionCreds, UiEvent, draft_key, spawn_session,
+    ProviderEndpoint, ServerProfile, SessionCreds, UiEvent, draft_key, spawn_session,
 };
 use gpui_kit::component::Root;
 use gpui_kit::component::input::{InputEvent, InputState, TextareaState};
@@ -61,6 +62,8 @@ pub(crate) fn run() {
 pub(crate) struct ChatWindow {
     db: LocalDb,
     bridge: alh_desktop::Bridge,
+    profiles: Vec<ServerProfile>,
+    active_profile: ServerProfile,
     conversations: Vec<ConversationItem>,
     models: Vec<String>,
     providers: Vec<ProviderEndpoint>,
@@ -78,6 +81,8 @@ pub(crate) struct ChatWindow {
     password_text: Option<String>,
     session_token_text: Option<String>,
     provider_form_open: bool,
+    profile_menu_open: bool,
+    profile_form_open: bool,
     model_menu_open: bool,
     editing_provider: Option<Uuid>,
     provider_preset: String,
@@ -87,6 +92,9 @@ pub(crate) struct ChatWindow {
     provider_name_text: Option<String>,
     provider_url_text: Option<String>,
     provider_token_text: Option<String>,
+    profile_name_text: Option<String>,
+    profile_url_text: Option<String>,
+    server_url_text: Option<String>,
     url_input: Entity<InputState>,
     username_input: Entity<InputState>,
     password_input: Entity<InputState>,
@@ -94,6 +102,8 @@ pub(crate) struct ChatWindow {
     provider_name_input: Entity<InputState>,
     provider_url_input: Entity<InputState>,
     provider_token_input: Entity<InputState>,
+    profile_name_input: Entity<InputState>,
+    profile_url_input: Entity<InputState>,
     draft_input: Entity<TextareaState>,
     scroll: ScrollHandle,
     _subscriptions: Vec<Subscription>,
@@ -108,10 +118,18 @@ impl ChatWindow {
                 Some(err.to_string()),
             ),
         };
-        let url = db.server_url().unwrap_or_else(|err| {
+        let active_profile = db.active_profile().unwrap_or_else(|err| {
             banner = Some(err.to_string());
-            DEFAULT_SERVER_URL.to_string()
+            ServerProfile {
+                id: Uuid::nil(),
+                name: "Local server".into(),
+                url: DEFAULT_SERVER_URL.into(),
+            }
         });
+        let url = active_profile.url.clone();
+        let profiles = db
+            .profiles()
+            .unwrap_or_else(|_| vec![active_profile.clone()]);
         let saved_session = match db.session() {
             Ok(session) => session,
             Err(err) => {
@@ -165,6 +183,10 @@ impl ChatWindow {
                 .placeholder("Provider token")
                 .masked(true)
         });
+        let profile_name_input =
+            cx.new(|cx| InputState::new(window, cx).placeholder("Work server"));
+        let profile_url_input =
+            cx.new(|cx| InputState::new(window, cx).placeholder("http://127.0.0.1:8080"));
         let draft_input = cx.new(|cx| {
             TextareaState::new(window, cx)
                 .placeholder("Ask anything")
@@ -194,6 +216,8 @@ impl ChatWindow {
         Self {
             db,
             bridge,
+            profiles,
+            active_profile,
             conversations,
             models: Vec::new(),
             providers: Vec::new(),
@@ -211,6 +235,8 @@ impl ChatWindow {
             password_text: None,
             session_token_text: signed_in.then_some(access_token),
             provider_form_open: false,
+            profile_menu_open: false,
+            profile_form_open: false,
             model_menu_open: false,
             editing_provider: None,
             provider_preset: "ollama".into(),
@@ -220,6 +246,9 @@ impl ChatWindow {
             provider_name_text: None,
             provider_url_text: None,
             provider_token_text: None,
+            profile_name_text: None,
+            profile_url_text: None,
+            server_url_text: None,
             url_input,
             username_input,
             password_input,
@@ -227,6 +256,8 @@ impl ChatWindow {
             provider_name_input,
             provider_url_input,
             provider_token_input,
+            profile_name_input,
+            profile_url_input,
             draft_input,
             scroll: ScrollHandle::new(),
             _subscriptions: vec![draft_sub],

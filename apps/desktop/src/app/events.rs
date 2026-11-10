@@ -177,6 +177,8 @@ impl ChatWindow {
             UiEvent::SignedOut => {
                 self.signed_in = false;
                 self.settings_open = false;
+                self.profile_menu_open = false;
+                self.profile_form_open = false;
                 self.notice = None;
                 self.close_provider_form();
                 self.username.clear();

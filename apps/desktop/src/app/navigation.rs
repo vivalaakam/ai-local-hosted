@@ -4,11 +4,34 @@ use gpui_kit::prelude::*;
 use gpui_kit::{ClickEvent, Context, FontWeight, SharedString, div, px};
 
 use super::style::{DANGER, INK, LINE, MUTED, SOFT, WHITE, paint};
-use super::{ChatWindow, avatar, field_label, initial, mark, pill_button, side_row};
+use super::{ChatWindow, avatar, field_label, initial, mark, pill_button, side_row, text_action};
 
 impl ChatWindow {
     pub(crate) fn login_screen(&self, cx: &mut Context<Self>) -> impl IntoElement + use<> {
         let banner = self.banner.clone();
+        let mut profiles: Vec<gpui_kit::AnyElement> = Vec::new();
+        for profile in &self.profiles {
+            let id = profile.id;
+            let label = if id == self.active_profile.id {
+                format!("{} (current)", profile.name)
+            } else {
+                profile.name.clone()
+            };
+            profiles.push(
+                text_action(
+                    SharedString::from(format!("login-profile-{id}")),
+                    label,
+                    if id == self.active_profile.id {
+                        MUTED
+                    } else {
+                        INK
+                    },
+                    cx,
+                    move |this, cx| this.switch_profile(id, cx),
+                )
+                .into_any_element(),
+            );
+        }
         let sign_in = pill_button("sign-in", "Sign in", true, true, cx, |this, cx| {
             this.submit_login(false, cx);
         });
@@ -38,6 +61,8 @@ impl ChatWindow {
                             .font_weight(FontWeight::SEMIBOLD)
                             .child("Log in"),
                     )
+                    .child(field_label("Server profiles"))
+                    .child(h_flex().gap_3().flex_wrap().children(profiles))
                     .child(field_label("Server"))
                     .child(Input::new(&self.url_input))
                     .child(field_label("Username"))
@@ -158,7 +183,7 @@ impl ChatWindow {
                     .child(username),
             )
             .on_click(cx.listener(|this, _: &ClickEvent, _, cx| {
-                this.settings_open = true;
+                this.profile_menu_open = true;
                 this.model_menu_open = false;
                 cx.notify();
             }));

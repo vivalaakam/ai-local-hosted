@@ -18,6 +18,6 @@ pub use feed::{Bubble, Feed};
 pub use runtime::{Bridge, Command, DesktopSession, Login, UiEvent, spawn_bridge, spawn_session};
 pub use sse::{SseBuffer, StreamPiece};
 pub use store::{
-    ConversationItem, DEFAULT_SERVER_URL, LocalDb, NEW_DRAFT, SessionCreds, StoreError,
-    default_db_path, draft_key,
+    ConversationItem, DEFAULT_SERVER_URL, LocalDb, NEW_DRAFT, ServerProfile, SessionCreds,
+    StoreError, default_db_path, draft_key,
 };

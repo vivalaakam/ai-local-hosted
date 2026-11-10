@@ -1,0 +1,10 @@
+# Empty string means the default provider's default_model.
+[exact]
+
+[prefix]
+"claude-" = ""
+"gpt-" = ""
+"o1" = ""
+"o3" = ""
+"o4" = ""
+"codex-" = ""

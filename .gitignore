@@ -1,0 +1,6 @@
+/target
+/references
+.env
+*.sqlite
+*.sqlite3
+*.sqlite3-*

@@ -134,7 +134,7 @@ dependencies = [
 
 [[package]]
 name = "alh-core"
-version = "0.1.0"
+version = "0.1.1"
 dependencies = [
  "chrono",
  "futures",
@@ -146,7 +146,7 @@ dependencies = [
 
 [[package]]
 name = "alh-desktop"
-version = "0.1.0"
+version = "0.1.1"
 dependencies = [
  "futures",
  "gpui-kit",
@@ -160,7 +160,7 @@ dependencies = [
 
 [[package]]
 name = "alh-providers"
-version = "0.1.0"
+version = "0.1.1"
 dependencies = [
  "alh-core",
  "axum",
@@ -173,7 +173,7 @@ dependencies = [
 
 [[package]]
 name = "alh-server"
-version = "0.1.0"
+version = "0.1.1"
 dependencies = [
  "alh-core",
  "alh-providers",
@@ -197,7 +197,7 @@ dependencies = [
 
 [[package]]
 name = "alh-storage"
-version = "0.1.0"
+version = "0.1.1"
 dependencies = [
  "alh-core",
  "chrono",

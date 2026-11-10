@@ -1,0 +1,115 @@
+name: docker-image
+
+# Manual release: bumps the workspace version, pushes the image to ghcr.io,
+# then commits the bumped version with a vX.Y.Z tag.
+on:
+  workflow_dispatch:
+    inputs:
+      bump:
+        description: "Version bump for this image"
+        type: choice
+        default: patch
+        options:
+          - patch
+          - minor
+          - major
+
+permissions:
+  contents: write
+  packages: write
+
+jobs:
+  build-and-push:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Compute image name
+        run: echo "IMAGE=ghcr.io/${GITHUB_REPOSITORY,,}" >> "$GITHUB_ENV"
+
+      - name: Compute next version
+        id: version
+        run: |
+          current=$(sed -n 's/^version = "\(.*\)"$/\1/p' Cargo.toml | head -n1)
+          if [ -z "$current" ]; then
+            echo "Cannot parse version from Cargo.toml" >&2
+            exit 1
+          fi
+          IFS='.' read -r major minor patch <<< "$current"
+          case "${{ github.event.inputs.bump }}" in
+            major) major=$((major + 1)); minor=0; patch=0 ;;
+            minor) minor=$((minor + 1)); patch=0 ;;
+            patch) patch=$((patch + 1)) ;;
+            *) echo "Unknown bump: ${{ github.event.inputs.bump }}" >&2; exit 1 ;;
+          esac
+          {
+            echo "current=$current"
+            echo "new=$major.$minor.$patch"
+          } >> "$GITHUB_OUTPUT"
+
+      - name: Bump version in Cargo.toml and Cargo.lock
+        id: release
+        run: |
+          current="${{ steps.version.outputs.current }}"
+          new="${{ steps.version.outputs.new }}"
+          sed -i "s/^version = \"$current\"$/version = \"$new\"/" Cargo.toml
+          grep -q "^version = \"$new\"$" Cargo.toml || {
+            echo "sed replacement in Cargo.toml failed" >&2
+            exit 1
+          }
+          # Keep workspace member versions in the lockfile in sync so the
+          # docker build with --locked succeeds.
+          awk -v ver="$new" '
+            /^name = "alh-/ { member=1; print; next }
+            member && /^version = "/ { sub(/"[^"]*"/, "\"" ver "\""); print; member=0; next }
+            { print }
+          ' Cargo.lock > Cargo.lock.tmp && mv Cargo.lock.tmp Cargo.lock
+          git config user.name "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          git add Cargo.toml Cargo.lock
+          git commit -m "chore: bump version to $new"
+          git tag -f "v$new"
+          echo "RELEASE_COMMIT=$(git rev-parse HEAD)" >> "$GITHUB_ENV"
+
+      - name: Set up Docker Buildx
+        uses: docker/setup-buildx-action@v3
+
+      - name: Log in to ghcr.io
+        uses: docker/login-action@v3
+        with:
+          registry: ghcr.io
+          username: ${{ github.actor }}
+          password: ${{ secrets.GITHUB_TOKEN }}
+
+      - name: Build and push image
+        uses: docker/build-push-action@v6
+        with:
+          context: .
+          platforms: linux/amd64
+          push: true
+          tags: |
+            ${{ env.IMAGE }}:${{ steps.version.outputs.new }}
+            ${{ env.IMAGE }}:latest
+          labels: |
+            org.opencontainers.image.source=${{ github.server_url }}/${{ github.repository }}
+            org.opencontainers.image.revision=${{ env.RELEASE_COMMIT }}
+            org.opencontainers.image.version=${{ steps.version.outputs.new }}
+          cache-from: type=gha
+          cache-to: type=gha,mode=max
+
+      - name: Push version bump and tag to origin
+        run: |
+          git push origin "${GITHUB_REF_NAME}"
+          git push --force origin "refs/tags/v${{ steps.version.outputs.new }}"
+
+      - name: Write summary
+        run: |
+          new="${{ steps.version.outputs.new }}"
+          {
+            echo "Published \`$IMAGE:$new\` (also tagged \`latest\`)"
+            echo ''
+            echo '```'
+            echo "docker pull $IMAGE:$new"
+            echo '```'
+          } >> "$GITHUB_STEP_SUMMARY"

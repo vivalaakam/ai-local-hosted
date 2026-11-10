@@ -1,0 +1,11 @@
+.git
+.github
+.gitignore
+.env*
+Dockerfile
+.dockerignore
+LICENSE
+AGENTS.md
+PLAN.md
+target/
+references/

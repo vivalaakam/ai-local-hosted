@@ -26,7 +26,7 @@
 | Десктоп и SQLite | URL сервера, сессия входа, черновик ввода, кэш списка чатов. Источник правды по сообщениям — Postgres на сервере. Keyring не используем. Токен провайдера в SQLite не пишем. |
 | UI-стек | `gpui-kit`, как у Magenta: версия закреплена, серверные крейты от GPUI не зависят. Первое действие фазы 7 — пустое окно на macOS. Если не соберётся, переключаемся на связку `gpui` + `gpui-component` до написания экранов. |
 | Язык кода | Идентификаторы, комментарии и коммиты на английском. Документы плана и `AGENTS.md` на русском. |
-| Имена | Крейты `alh-core`, `alh-providers`, `alh-storage`, `alh-server`, `alh-desktop`. Бинарники `alh-server` и `alh-chat`. |
+| Имена | Крейты `alh-core`, `alh-providers`, `alh-storage`, `alh-tools`, `alh-server`, `alh-desktop`. Бинарники `alh-server` и `alh-chat`. |
 | ORM | SeaORM 2 поверх Postgres. Сложный SQL идёт через `ConnectionTrait`, без макросов `query!`. Миграции — файлы в `migrations/`, учёт в таблице `alh_migrations`. |
 | Лицензия нашего кода | [PolyForm Noncommercial 1.0.0](LICENSE). Бесплатно для некоммерческого использования, личных проектов, учёбы и некоммерческих организаций. Коммерческое использование эта лицензия не разрешает. Чужой AGPL-код не переносим. |
 
@@ -45,7 +45,7 @@ postgres://local_user:local_password@localhost:15432/ai-local-hosted
 - Каталог из десятков бесплатных провайдеров, bandit, квоты RPM/TPM, fusion-модели. Это продукт FreeLLMAPI, не наш.
 - Нативные адаптеры Anthropic и Gemini как upstream. Строку с `protocol = anthropic` можно сохранить, но вызов этого провайдера отвечает ошибкой, пока нет отдельного адаптера. Claude Code и Codex по-прежнему приходят своими протоколами на вход и уходят в OpenAI-совместимый upstream.
 - Биллинг, внешний IdP, админка. Свои пользователи и парольный OAuth уже есть.
-- Эмбеддинги, RAG, память, агентский цикл, инструменты на стороне сервера, computer use, глубокий ресёрч.
+- Эмбеддинги, RAG, память, computer use, глубокий ресёрч. Серверные tools и цикл в чате — отдельная фаза после GPUI (см. ниже).
 - Генерация картинок, речи, видео.
 - Рабочая область с git, диффами и песочницей. Magenta и Leon это умеют. Наш GPUI в v1 — чат.
 - Встроенный Postgres в десктопе. У ChatGPUI так сделано. У нас Postgres уже внешний.
@@ -158,12 +158,13 @@ Rust Matrix-клиент: `rivet-core` (стор и клиент), `rivet-ui` (�
 кодовый агент                         GPUI alh-chat
       |                                    |
       |  /v1/chat/completions              |  /api/conversations
-      |  /v1/responses                     |  SQLite: url, черновики
-      |  /v1/messages                      |
+      |  /v1/responses                     |  /api/tools
+      |  /v1/messages                      |  SQLite: url, черновики
       |  /v1/models                        |
       v                                    v
                     alh-server (axum)
-                     |            |
+                     |            |            |
+                     |            |            +-- alh-tools (native, Rhai)
                      |            +-- alh-storage --> PostgreSQL
                      v
                   alh-core
@@ -177,17 +178,19 @@ Rust Matrix-клиент: `rivet-core` (стор и клиент), `rivet-ui` (�
                      +-- позже любой другой /v1
 ```
 
-`alh-core` не зависит от axum, sqlx, sea-orm, reqwest и gpui. Сервер и провайдеры зависят от core. Десктоп не зависит от `alh-providers` и `alh-storage`.
+`alh-core` не зависит от axum, sqlx, sea-orm, reqwest и gpui. `alh-tools` зависит от core и может тянуть `reqwest`/`rhai`, но не axum и не sea-orm. Сервер склеивает storage, tools и providers. Десктоп не зависит от `alh-providers`, `alh-storage` и `alh-tools`.
 
 Поток чата:
 
 1. Клиент создаёт разговор или шлёт сообщение в существующий.
-2. Сервер в одной транзакции пишет user-сообщение и пустое assistant-сообщение со статусом `streaming`.
+2. Сервер в одной транзакции пишет user-сообщение и пустое assistant-сообщение со статусом `streaming`. На самом первом ходе, если есть эффективный system prompt (слои `system_prompts` + `conversations.system_prompt`), перед ними пишется видимое `role=system` сообщение в ленту; повторно не дублируется.
 3. Собирает контекст из сообщений этого разговора со статусом `done` плюс новое user-сообщение.
-4. Резолвит провайдера и зовёт `ChatProvider::stream`.
-5. Дельты уходят клиенту. В базу на каждую дельту не пишем.
-6. Успех — одна запись: текст, usage, статус `done`. Обрыв клиента или ошибка — статус `cancelled` или `error`, уже полученный текст сохраняем.
-7. При старте сервера все строки `streaming` старше этого процесса помечаются `error` с кодом `interrupted`.
+4. Подмешивает enabled tools из каталога (system + свои) в `CompletionRequest.tools` и добавляет их краткий список в system prompt (имя + description).
+5. Резолвит провайдера и зовёт `ChatProvider::stream`.
+6. Дельты уходят клиенту. В базу на каждую дельту не пишем.
+7. Если finish — `tool_calls`, сервер исполняет каталог tools, дописывает assistant+tool в Postgres, вставляет новый `streaming` assistant и повторяет вызов (лимит раундов). Клиентские `/v1` tools так не исполняются.
+8. Успех — одна запись финального assistant: текст, usage, статус `done`. Обрыв клиента или ошибка — статус `cancelled` или `error`, уже полученный текст сохраняем.
+9. При старте сервера все строки `streaming` старше этого процесса помечаются `error` с кодом `interrupted`.
 
 Поток агента короче. Chat Completions, Responses и Anthropic Messages переводятся в один `CompletionRequest`. Тело в `request_log` не пишем. Резолвим модель, стримим upstream, наружу отдаём события в протоколе клиента. В конце — строка лога. Для `/v1/responses` дополнительно пишем `response_states`, чтобы следующий ход мог сослаться на `previous_response_id`.
 
@@ -228,6 +231,20 @@ Rust Matrix-клиент: `rivet-core` (стор и клиент), `rivet-ui` (�
 - `user_id`, `scope` — первичный ключ. Служебный пользователь `00000000-0000-0000-0000-000000000001` может иметь только `scope = global`; у реального пользователя бывают `assigned` и `self`.
 - `content`, `updated_at`
 - На каждый запрос сервер добавляет непустые слои перед клиентскими системными сообщениями в порядке `global`, `assigned`, `self`. Оператор сервера задаёт `global` и `assigned` напрямую в БД; API пользователя читает и меняет только его `self`.
+
+`tools`
+
+- `id` uuid
+- `owner_user_id` uuid null — `null` = системный tool; иначе пользовательский
+- `slug` текст — уникален среди system (`owner_user_id IS NULL`) и в паре с владельцем для user tools
+- `name`, `description`, `parameters` jsonb — схема для модели
+- `kind` — `native` | `rhai`
+- `source` текст null — исходник Rhai; у native пусто
+- `enabled` bool
+- `created_at`, `updated_at`
+- Имя, которое видит модель: system — `{slug}`, user — `user__{slug}`
+- Уровни: native system (код на Rust, манифест в БД), system Rhai (`source` в БД), user Rhai (CRUD через `/api/tools`)
+- Цикл исполнения только в чате. `/v1/*` клиентские tools не исполняет
 
 `messages`
 
@@ -384,7 +401,7 @@ trait ChatProvider: Send + Sync {
 Поведение v1:
 
 - при старте читает `server_url` и сессию из SQLite. Нет сессии — экран входа. Просроченный access обновляется через refresh. Не вышло — снова экран входа;
-- кнопка Settings внизу списка открывает отдельный экран. Там URL сервера, выход, access-токен для кодового агента и список провайдеров с кнопкой «Add provider». Имя, URL, токен и протокол вводятся в модальном окне; поле id нет, сервер выдаёт UUID. Токен провайдера в поле обратно не подставляется; пустое поле при правке оставляет сохранённый секрет. Смена URL сервера стирает сессию. Chat или выбор чата возвращает ленту;
+- кнопка Settings внизу списка открывает отдельный экран. Там URL сервера, выход, access-токен для кодового агента, свой system prompt, список провайдеров с кнопкой «Add provider» и список tools с «Add tool». Имя, URL, токен и протокол провайдера — в модальном окне; поле id нет, сервер выдаёт UUID. Токен провайдера в поле обратно не подставляется; пустое поле при правке оставляет сохранённый секрет. System tools только просмотр; user Rhai tools создаются и правятся в модалке (`fn run(args)`). Смена URL сервера стирает сессию. Chat или выбор чата возвращает ленту;
 - выбор чата грузит сообщения;
 - отправка пишет черновик в SQLite сразу и чистит его после принятия сервером;
 - стрим батчится примерно раз в 50 мс, чтобы не перерисовывать глиф на каждый токен;
@@ -488,7 +505,18 @@ migrations                  SQL, подключается из alh-storage
 
 Автотест десктопа в v1 — на чистую логику батчинга дельт и состояния ленты, без GPU. Смок окна — ручной.
 
-## Бэклог после фазы 7
+### Фаза 8. Серверные tools
+
+Состав: крейт `alh-tools`, таблица `tools`, CRUD `/api/tools`, цикл исполнения в `POST /api/conversations/.../messages`.
+
+- Native system: `current_time` (UTC ISO-8601), `get_weather` (Open-Meteo geocoding + forecast).
+- System/user Rhai: функция `run(args)` (`call` в Rhai зарезервирован), host `http_request(method, url, headers, body)` с таймаутом 10s и лимитом тела 1 MiB. Без FS и process.
+- Лимит раундов tool loop (8). Промежуточные assistant+tool сообщения пишутся в Postgres.
+- `/v1/*` без изменений по исполнению: только проброс клиентских tools.
+
+Готово, когда unit-тесты native/Rhai на wiremock зелёные, и интеграционный тест чата со стабом провайдера проходит roundtrip `tool_calls` → результат → финальный текст.
+
+## Бэклог после фазы 8
 
 Порядок, если не скажут иной:
 
@@ -498,6 +526,7 @@ migrations                  SQL, подключается из alh-storage
 4. Нативный upstream-адаптер только для протокола, который не притворяется OpenAI.
 5. Цепочка failover: явный список, без bandit.
 6. Исследовательский бинарь по мотивам deep-research, клиент нашего `/v1`.
+7. Lua runtime для script tools, UI редактора tools в GPUI, allowlist доменов для `http_request`.
 
 ## Проверка по ходу работы
 

@@ -23,6 +23,58 @@ pub(crate) async fn set_default_on(
     Ok(())
 }
 
+pub(crate) async fn layers_on(
+    conn: &impl ConnectionTrait,
+    user_id: Uuid,
+) -> Result<SystemPromptLayers, StorageError> {
+    let rows = query::all(
+        conn,
+        "SELECT user_id, scope, content FROM system_prompts
+         WHERE (user_id = $1 AND scope IN ('assigned', 'self'))
+            OR (user_id = $2 AND scope = 'global')",
+        vec![Value::from(user_id), Value::from(LEGACY_USER_ID)],
+    )
+    .await?;
+    let mut layers = SystemPromptLayers::default();
+    for row in rows {
+        let scope: String = row.try_get("", "scope")?;
+        let content: String = row.try_get("", "content")?;
+        match scope.as_str() {
+            "global" => layers.global = Some(content),
+            "assigned" => layers.assigned = Some(content),
+            "self" => layers.own = Some(content),
+            _ => {}
+        }
+    }
+    Ok(layers)
+}
+
+/// Prompt text shown once in the chat transcript on the first turn.
+pub(crate) fn display_system_prompt(
+    layers: &SystemPromptLayers,
+    conversation_prompt: Option<&str>,
+    tools_prompt: Option<&str>,
+) -> Option<String> {
+    let mut parts = layers.effective();
+    if let Some(prompt) = conversation_prompt
+        .map(str::trim)
+        .filter(|prompt| !prompt.is_empty())
+    {
+        parts.push(prompt.to_string());
+    }
+    if let Some(prompt) = tools_prompt
+        .map(str::trim)
+        .filter(|prompt| !prompt.is_empty())
+    {
+        parts.push(prompt.to_string());
+    }
+    if parts.is_empty() {
+        None
+    } else {
+        Some(parts.join("\n\n"))
+    }
+}
+
 pub(crate) async fn load_done(
     conn: &impl ConnectionTrait,
     conversation_id: Uuid,
@@ -262,7 +314,7 @@ pub(crate) fn statements(sql: &str) -> Vec<String> {
 
 #[cfg(test)]
 mod tests {
-    use super::normalize_protocol;
+    use super::{display_system_prompt, normalize_protocol};
     use crate::SystemPromptLayers;
 
     #[test]
@@ -281,5 +333,17 @@ mod tests {
             own: Some("own".into()),
         };
         assert_eq!(layers.effective(), ["global", "assigned", "own"]);
+        assert_eq!(
+            display_system_prompt(
+                &layers,
+                Some("conversation"),
+                Some("Available tools:\n- `t`")
+            ),
+            Some("global\n\nassigned\n\nown\n\nconversation\n\nAvailable tools:\n- `t`".into())
+        );
+        assert_eq!(
+            display_system_prompt(&SystemPromptLayers::default(), None, None),
+            None
+        );
     }
 }

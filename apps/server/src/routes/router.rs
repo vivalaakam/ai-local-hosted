@@ -28,6 +28,7 @@ pub fn router(state: Arc<AppState>) -> Router {
             post(import_claude).layer(DefaultBodyLimit::max(512 * 1024 * 1024)),
         )
         .merge(crate::providers::routes())
+        .merge(crate::tools_api::routes())
         .layer(middleware::from_fn_with_state(state.clone(), require_auth))
         .layer(DefaultBodyLimit::max(32 * 1024 * 1024))
         .with_state(state)

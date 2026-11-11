@@ -1,4 +1,4 @@
-use gpui_kit::component::input::Input;
+use gpui_kit::component::input::{Input, Textarea};
 use gpui_kit::component::{h_flex, v_flex};
 use gpui_kit::prelude::*;
 use gpui_kit::{ClickEvent, Context, FontWeight, SharedString, div, px};
@@ -100,6 +100,92 @@ impl ChatWindow {
             );
         }
 
+        let mut tools: Vec<gpui_kit::AnyElement> = Vec::new();
+        if self.tools.is_empty() {
+            tools.push(
+                div()
+                    .text_sm()
+                    .text_color(paint(MUTED))
+                    .child("No tools yet.")
+                    .into_any_element(),
+            );
+        }
+        for row in &self.tools {
+            let id = row.id;
+            let system = row.is_system();
+            let label = if row.name.trim().is_empty() {
+                row.slug.clone()
+            } else {
+                row.name.clone()
+            };
+            let meta = format!(
+                "{} · {} · {}{}",
+                row.kind,
+                row.model_name,
+                if system { "system" } else { "yours" },
+                if row.enabled { "" } else { " · disabled" }
+            );
+            let open = div()
+                .id(SharedString::from(format!("tool-{id}")))
+                .font_weight(FontWeight::MEDIUM)
+                .cursor_pointer()
+                .child(label)
+                .on_click(cx.listener(move |this, _: &ClickEvent, _, cx| {
+                    if system {
+                        this.view_tool(id);
+                    } else {
+                        this.edit_tool(id);
+                    }
+                    cx.notify();
+                }));
+            let open_action = text_action(
+                SharedString::from(format!("tool-open-{id}")),
+                if system { "View" } else { "Edit" },
+                INK,
+                cx,
+                move |this, _cx| {
+                    if system {
+                        this.view_tool(id);
+                    } else {
+                        this.edit_tool(id);
+                    }
+                },
+            )
+            .into_any_element();
+            let remove = if system {
+                div().into_any_element()
+            } else {
+                text_action(
+                    SharedString::from(format!("tool-delete-{id}")),
+                    "Delete",
+                    DANGER,
+                    cx,
+                    move |this, _cx| this.delete_tool(id),
+                )
+                .into_any_element()
+            };
+            tools.push(
+                v_flex()
+                    .w_full()
+                    .py_3()
+                    .gap_1()
+                    .border_b_1()
+                    .border_color(paint(LINE))
+                    .child(open)
+                    .child(div().text_sm().text_color(paint(MUTED)).child(meta))
+                    .when(!row.description.is_empty(), |column| {
+                        column.child(
+                            div()
+                                .text_sm()
+                                .text_color(paint(MUTED))
+                                .child(row.description.clone()),
+                        )
+                    })
+                    .child(h_flex().gap_3().child(open_action).child(remove))
+                    .into_any_element(),
+            );
+        }
+
         let save_server = pill_button("save-server", "Save server", true, false, cx, |this, cx| {
             this.save_server(cx);
         });
@@ -124,6 +210,18 @@ impl ChatWindow {
                 this.open_new_provider();
                 cx.notify();
             },
+        );
+        let add_tool = pill_button("add-tool", "Add tool", true, false, cx, |this, cx| {
+            this.open_new_tool();
+            cx.notify();
+        });
+        let save_prompt = pill_button(
+            "save-system-prompt",
+            "Save prompt",
+            true,
+            false,
+            cx,
+            |this, cx| this.save_system_prompt(cx),
         );
 
         v_flex()
@@ -166,6 +264,14 @@ impl ChatWindow {
                                 "Copy this token into a coding agent. It stays in the local SQLite file.",
                             ),
                         )
+                        .child(field_label("Your system prompt"))
+                        .child(
+                            div().text_sm().text_color(paint(MUTED)).child(
+                                "Added on the server before every chat turn, after global and assigned prompts.",
+                            ),
+                        )
+                        .child(Textarea::new(&self.system_prompt_input).appearance(true))
+                        .child(save_prompt)
                         .child(field_label("Claude export"))
                         .child(
                             div().text_sm().text_color(paint(MUTED)).child(
@@ -183,7 +289,20 @@ impl ChatWindow {
                                 .child(div().font_weight(FontWeight::MEDIUM).child("Providers"))
                                 .child(add_provider),
                         )
-                        .children(providers),
+                        .children(providers)
+                        .child(
+                            h_flex()
+                                .items_center()
+                                .justify_between()
+                                .child(div().font_weight(FontWeight::MEDIUM).child("Tools"))
+                                .child(add_tool),
+                        )
+                        .child(
+                            div().text_sm().text_color(paint(MUTED)).child(
+                                "System tools are built-in. Your tools are Rhai scripts with fn run(args) and http_request.",
+                            ),
+                        )
+                        .children(tools),
                 ),
             )
     }

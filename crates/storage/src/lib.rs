@@ -155,6 +155,7 @@ pub struct BegunTurn {
     pub conversation_id: Uuid,
     pub user_message_id: Uuid,
     pub assistant_message_id: Uuid,
+    pub system_message_id: Option<Uuid>,
     pub provider_id: Uuid,
     pub model: String,
     pub system_prompt: Option<String>,
@@ -236,6 +237,48 @@ pub struct ResponseState {
     pub created_at: DateTime<Utc>,
 }
 
+#[derive(Debug, Clone)]
+pub struct ToolRow {
+    pub id: Uuid,
+    pub owner_user_id: Option<Uuid>,
+    pub slug: String,
+    pub name: String,
+    pub description: String,
+    pub parameters: Json,
+    pub kind: String,
+    pub source: Option<String>,
+    pub enabled: bool,
+    pub created_at: DateTime<Utc>,
+    pub updated_at: DateTime<Utc>,
+}
+
+#[derive(Debug, Clone)]
+pub struct NewTool {
+    pub id: Uuid,
+    pub owner_user_id: Uuid,
+    pub slug: String,
+    pub name: String,
+    pub description: String,
+    pub parameters: Json,
+    pub source: String,
+    pub enabled: bool,
+}
+
+#[derive(Debug, Clone, Default)]
+pub struct ToolPatch {
+    pub name: Option<String>,
+    pub description: Option<String>,
+    pub parameters: Option<Json>,
+    pub source: Option<String>,
+    pub enabled: Option<bool>,
+}
+
+#[derive(Debug, Clone)]
+pub struct ToolResultMessage {
+    pub tool_call_id: String,
+    pub content: String,
+}
+
 const MIGRATIONS: &[(&str, &str)] = &[
     (
         "0001_init",
@@ -256,6 +299,10 @@ const MIGRATIONS: &[(&str, &str)] = &[
     (
         "0005_system_prompts",
         include_str!("../../../migrations/0005_system_prompts.sql"),
+    ),
+    (
+        "0006_tools",
+        include_str!("../../../migrations/0006_tools.sql"),
     ),
 ];
 

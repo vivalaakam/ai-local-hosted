@@ -10,10 +10,12 @@ mod providers;
 mod render;
 mod settings;
 mod style;
+mod tool_modal;
+mod tools;
 
 use alh_desktop::{
     BATCH_INTERVAL, Bubble, ConversationItem, DEFAULT_SERVER_URL, DesktopSession, Feed, LocalDb,
-    ProviderEndpoint, ServerProfile, SessionCreds, UiEvent, draft_key, spawn_session,
+    ProviderEndpoint, ServerProfile, SessionCreds, ToolEndpoint, UiEvent, draft_key, spawn_session,
 };
 use gpui_kit::component::Root;
 use gpui_kit::component::input::{InputEvent, InputState, TextareaState};
@@ -67,6 +69,7 @@ pub(crate) struct ChatWindow {
     conversations: Vec<ConversationItem>,
     models: Vec<String>,
     providers: Vec<ProviderEndpoint>,
+    tools: Vec<ToolEndpoint>,
     selected: Option<Uuid>,
     model: String,
     feed: Feed,
@@ -80,18 +83,28 @@ pub(crate) struct ChatWindow {
     composer_text: Option<String>,
     password_text: Option<String>,
     session_token_text: Option<String>,
+    system_prompt_text: Option<String>,
     provider_form_open: bool,
+    tool_form_open: bool,
+    tool_form_readonly: bool,
     profile_menu_open: bool,
     profile_form_open: bool,
     model_menu_open: bool,
     editing_provider: Option<Uuid>,
+    editing_tool: Option<Uuid>,
     provider_preset: String,
     provider_protocol: String,
     provider_default: bool,
     provider_enabled: bool,
+    tool_enabled: bool,
     provider_name_text: Option<String>,
     provider_url_text: Option<String>,
     provider_token_text: Option<String>,
+    tool_slug_text: Option<String>,
+    tool_name_text: Option<String>,
+    tool_description_text: Option<String>,
+    tool_parameters_text: Option<String>,
+    tool_source_text: Option<String>,
     profile_name_text: Option<String>,
     profile_url_text: Option<String>,
     server_url_text: Option<String>,
@@ -102,6 +115,12 @@ pub(crate) struct ChatWindow {
     provider_name_input: Entity<InputState>,
     provider_url_input: Entity<InputState>,
     provider_token_input: Entity<InputState>,
+    tool_slug_input: Entity<InputState>,
+    tool_name_input: Entity<InputState>,
+    tool_description_input: Entity<InputState>,
+    tool_parameters_input: Entity<TextareaState>,
+    tool_source_input: Entity<TextareaState>,
+    system_prompt_input: Entity<TextareaState>,
     profile_name_input: Entity<InputState>,
     profile_url_input: Entity<InputState>,
     draft_input: Entity<TextareaState>,
@@ -183,6 +202,25 @@ impl ChatWindow {
                 .placeholder("Provider token")
                 .masked(true)
         });
+        let tool_slug_input = cx.new(|cx| InputState::new(window, cx).placeholder("my_tool"));
+        let tool_name_input = cx.new(|cx| InputState::new(window, cx).placeholder("My tool"));
+        let tool_description_input =
+            cx.new(|cx| InputState::new(window, cx).placeholder("What this tool does"));
+        let tool_parameters_input = cx.new(|cx| {
+            TextareaState::new(window, cx)
+                .placeholder(r#"{"type":"object","properties":{}}"#)
+                .auto_grow(2, 8)
+        });
+        let tool_source_input = cx.new(|cx| {
+            TextareaState::new(window, cx)
+                .placeholder("fn run(args) {\n  \"\"\n}")
+                .auto_grow(6, 18)
+        });
+        let system_prompt_input = cx.new(|cx| {
+            TextareaState::new(window, cx)
+                .placeholder("Optional instructions added to every chat turn")
+                .auto_grow(3, 10)
+        });
         let profile_name_input =
             cx.new(|cx| InputState::new(window, cx).placeholder("Work server"));
         let profile_url_input =
@@ -221,6 +259,7 @@ impl ChatWindow {
             conversations,
             models: Vec::new(),
             providers: Vec::new(),
+            tools: Vec::new(),
             selected: None,
             model: String::new(),
             feed: Feed::default(),
@@ -234,18 +273,28 @@ impl ChatWindow {
             composer_text,
             password_text: None,
             session_token_text: signed_in.then_some(access_token),
+            system_prompt_text: None,
             provider_form_open: false,
+            tool_form_open: false,
+            tool_form_readonly: false,
             profile_menu_open: false,
             profile_form_open: false,
             model_menu_open: false,
             editing_provider: None,
+            editing_tool: None,
             provider_preset: "ollama".into(),
             provider_protocol: "openai".into(),
             provider_default: true,
             provider_enabled: true,
+            tool_enabled: true,
             provider_name_text: None,
             provider_url_text: None,
             provider_token_text: None,
+            tool_slug_text: None,
+            tool_name_text: None,
+            tool_description_text: None,
+            tool_parameters_text: None,
+            tool_source_text: None,
             profile_name_text: None,
             profile_url_text: None,
             server_url_text: None,
@@ -256,6 +305,12 @@ impl ChatWindow {
             provider_name_input,
             provider_url_input,
             provider_token_input,
+            tool_slug_input,
+            tool_name_input,
+            tool_description_input,
+            tool_parameters_input,
+            tool_source_input,
+            system_prompt_input,
             profile_name_input,
             profile_url_input,
             draft_input,

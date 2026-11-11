@@ -63,6 +63,15 @@ impl Session {
         {
             self.emit(UiEvent::Providers(providers));
         }
+        if let Some(tools) = self.call(false, async |api| api.list_tools().await).await {
+            self.emit(UiEvent::Tools(tools));
+        }
+        if let Some(prompt) = self
+            .call(false, async |api| api.get_system_prompt().await)
+            .await
+        {
+            self.emit(UiEvent::SystemPrompt(prompt));
+        }
     }
 
     fn start_send(

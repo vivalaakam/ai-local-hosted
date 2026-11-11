@@ -24,6 +24,25 @@ pub struct Feed {
     pub banner: Option<String>,
 }
 
+impl Bubble {
+    /// Tool round-trips stay in Postgres for the model, but the chat UI only
+    /// shows user/assistant text (and the optional first-turn system prompt).
+    pub fn visible_in_chat(&self) -> bool {
+        match self.role.as_str() {
+            "tool" => false,
+            "assistant"
+                if self.content.trim().is_empty()
+                    && self.thinking.trim().is_empty()
+                    && self.status != "streaming"
+                    && self.status != "error" =>
+            {
+                false
+            }
+            _ => true,
+        }
+    }
+}
+
 impl Feed {
     pub fn set_draft(&mut self, draft: String) {
         self.draft = draft;
@@ -85,6 +104,10 @@ impl Feed {
     }
 
     pub fn replace_messages(&mut self, messages: Vec<Bubble>) {
+        let messages: Vec<Bubble> = messages
+            .into_iter()
+            .filter(Bubble::visible_in_chat)
+            .collect();
         self.streaming_id = messages
             .iter()
             .find(|message| message.status == "streaming")
@@ -131,6 +154,50 @@ mod tests {
         assert!(feed.draft.is_empty());
         assert!(feed.banner.is_none());
         assert_eq!(feed.streaming_id.as_deref(), Some("asst"));
+    }
+
+    #[test]
+    fn replace_messages_hides_tool_results_and_empty_tool_assistants() {
+        let mut feed = Feed::default();
+        feed.replace_messages(vec![
+            Bubble {
+                id: "sys".into(),
+                role: "system".into(),
+                content: "prompt".into(),
+                thinking: String::new(),
+                status: "done".into(),
+                error_code: None,
+            },
+            user("hi"),
+            Bubble {
+                id: "tool-call".into(),
+                role: "assistant".into(),
+                content: String::new(),
+                thinking: String::new(),
+                status: "done".into(),
+                error_code: None,
+            },
+            Bubble {
+                id: "tool".into(),
+                role: "tool".into(),
+                content: r#"{"utc":"2026-01-01T00:00:00Z"}"#.into(),
+                thinking: String::new(),
+                status: "done".into(),
+                error_code: None,
+            },
+            Bubble {
+                id: "final".into(),
+                role: "assistant".into(),
+                content: "It is midnight UTC.".into(),
+                thinking: String::new(),
+                status: "done".into(),
+                error_code: None,
+            },
+        ]);
+        assert_eq!(feed.messages.len(), 3);
+        assert_eq!(feed.messages[0].role, "system");
+        assert_eq!(feed.messages[1].role, "user");
+        assert_eq!(feed.messages[2].content, "It is midnight UTC.");
     }
 
     #[test]

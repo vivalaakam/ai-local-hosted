@@ -120,6 +120,45 @@ impl Session {
                     self.reload().await;
                 }
             }
+            Command::SaveTool(draft) => {
+                let reset_form = draft.reset_form;
+                if self
+                    .call(false, async |api| api.save_tool(&draft).await)
+                    .await
+                    .is_some()
+                {
+                    if reset_form {
+                        self.emit(UiEvent::ToolSaved);
+                    }
+                    self.reload().await;
+                }
+            }
+            Command::DeleteTool(id) => {
+                if self
+                    .call(false, async |api| api.delete_tool(id).await)
+                    .await
+                    .is_some()
+                {
+                    self.reload().await;
+                }
+            }
+            Command::SaveSystemPrompt(content) => {
+                if self
+                    .call(false, async |api| {
+                        api.save_system_prompt(content.as_deref()).await
+                    })
+                    .await
+                    .is_some()
+                {
+                    self.emit(UiEvent::SystemPromptSaved);
+                    if let Some(prompt) = self
+                        .call(false, async |api| api.get_system_prompt().await)
+                        .await
+                    {
+                        self.emit(UiEvent::SystemPrompt(prompt));
+                    }
+                }
+            }
             Command::ImportClaude { paths } => self.import_claude(paths).await,
         }
     }

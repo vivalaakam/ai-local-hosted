@@ -6,6 +6,7 @@ impl Store {
         conversation_id: Uuid,
         content: &str,
         model: Option<&str>,
+        tools_prompt: Option<&str>,
     ) -> Result<BegunTurn, StorageError> {
         let tx = self.db.begin().await?;
         let row = query::one(
@@ -51,7 +52,30 @@ impl Store {
         else {
             return Err(StorageError::NotFound);
         };
-        let next: i32 = next_row.try_get("", "next")?;
+        let mut next: i32 = next_row.try_get("", "next")?;
+        let mut system_message_id = None;
+        if next == 0 {
+            let layers = layers_on(&tx, user_id).await?;
+            if let Some(prompt) =
+                display_system_prompt(&layers, system_prompt.as_deref(), tools_prompt)
+            {
+                let id = Uuid::new_v4();
+                query::exec(
+                    &tx,
+                    "INSERT INTO messages (id, conversation_id, position, role, content, status, finished_at)
+                     VALUES ($1, $2, $3, 'system', $4, 'done', now())",
+                    vec![
+                        Value::from(id),
+                        Value::from(conversation_id),
+                        Value::from(next),
+                        Value::from(prompt),
+                    ],
+                )
+                .await?;
+                system_message_id = Some(id);
+                next += 1;
+            }
+        }
         let user_message_id = Uuid::new_v4();
         let assistant_id = Uuid::new_v4();
         query::exec(
@@ -105,6 +129,7 @@ impl Store {
             conversation_id,
             user_message_id,
             assistant_message_id: assistant_id,
+            system_message_id,
             provider_id,
             model: model_name,
             system_prompt,

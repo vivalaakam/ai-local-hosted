@@ -44,6 +44,30 @@ impl Render for ChatWindow {
             self.profile_url_input
                 .update(cx, |state, cx| state.set_value(text, window, cx));
         }
+        if let Some(text) = self.system_prompt_text.take() {
+            self.system_prompt_input
+                .update(cx, |state, cx| state.set_value(text, window, cx));
+        }
+        if let Some(text) = self.tool_slug_text.take() {
+            self.tool_slug_input
+                .update(cx, |state, cx| state.set_value(text, window, cx));
+        }
+        if let Some(text) = self.tool_name_text.take() {
+            self.tool_name_input
+                .update(cx, |state, cx| state.set_value(text, window, cx));
+        }
+        if let Some(text) = self.tool_description_text.take() {
+            self.tool_description_input
+                .update(cx, |state, cx| state.set_value(text, window, cx));
+        }
+        if let Some(text) = self.tool_parameters_text.take() {
+            self.tool_parameters_input
+                .update(cx, |state, cx| state.set_value(text, window, cx));
+        }
+        if let Some(text) = self.tool_source_text.take() {
+            self.tool_source_input
+                .update(cx, |state, cx| state.set_value(text, window, cx));
+        }
         if !self.signed_in {
             return self.login_screen(cx).into_any_element();
         }
@@ -54,6 +78,7 @@ impl Render for ChatWindow {
             self.chat_column(cx).into_any_element()
         };
         let modal = self.provider_form_open.then(|| self.provider_modal(cx));
+        let tool_modal = self.tool_form_open.then(|| self.tool_modal(cx));
         let profile_menu = self.profile_menu_open.then(|| self.profile_menu(cx));
         let profile_form = self.profile_form_open.then(|| self.profile_form(cx));
         div()
@@ -63,6 +88,7 @@ impl Render for ChatWindow {
             .text_color(paint(INK))
             .child(h_flex().size_full().child(sidebar).child(main))
             .when_some(modal, |root, modal| root.child(modal))
+            .when_some(tool_modal, |root, modal| root.child(modal))
             .when_some(profile_menu, |root, modal| root.child(modal))
             .when_some(profile_form, |root, modal| root.child(modal))
             .into_any_element()

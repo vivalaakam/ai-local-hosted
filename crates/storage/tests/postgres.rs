@@ -98,11 +98,21 @@ async fn chat_turn_conflict_and_response_state() {
         .await
         .unwrap();
     let turn = store
-        .begin_turn(LEGACY_USER_ID, conversation.id, "hello\nmore", None)
+        .begin_turn(
+            LEGACY_USER_ID,
+            conversation.id,
+            "hello\nmore",
+            None,
+            Some("Available tools:\n- `current_time`"),
+        )
         .await
         .unwrap();
-    assert_eq!(turn.history.len(), 1);
-    assert_eq!(turn.history[0].content, "hello\nmore");
+    assert!(turn.system_message_id.is_some());
+    assert_eq!(turn.history.len(), 2);
+    assert_eq!(turn.history[0].role, alh_core::Role::System);
+    assert!(turn.history[0].content.contains("be brief"));
+    assert!(turn.history[0].content.contains("current_time"));
+    assert_eq!(turn.history[1].content, "hello\nmore");
     assert_eq!(turn.system_prompt.as_deref(), Some("be brief"));
     let saved = store
         .get_conversation(LEGACY_USER_ID, conversation.id)
@@ -111,7 +121,7 @@ async fn chat_turn_conflict_and_response_state() {
         .unwrap();
     assert_eq!(saved.title, "hello");
     let conflict = store
-        .begin_turn(LEGACY_USER_ID, conversation.id, "second", None)
+        .begin_turn(LEGACY_USER_ID, conversation.id, "second", None, None)
         .await;
     assert!(matches!(conflict, Err(StorageError::Conflict)));
     store
@@ -127,10 +137,17 @@ async fn chat_turn_conflict_and_response_state() {
         .await
         .unwrap();
     let again = store
-        .begin_turn(LEGACY_USER_ID, conversation.id, "second", Some("other"))
+        .begin_turn(
+            LEGACY_USER_ID,
+            conversation.id,
+            "second",
+            Some("other"),
+            None,
+        )
         .await
         .unwrap();
-    assert_eq!(again.history.len(), 3);
+    assert!(again.system_message_id.is_none());
+    assert_eq!(again.history.len(), 4);
     assert_eq!(again.model, "other");
     store
         .insert_request_log(&RequestLogEntry {

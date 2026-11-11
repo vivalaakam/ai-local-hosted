@@ -7,12 +7,14 @@ use alh_core::{
 };
 use alh_providers::{OpenAiProvider, ProviderConfig};
 use alh_storage::{ProviderRow, Store};
+use alh_tools::ToolExecutor;
 use uuid::Uuid;
 
 use crate::error::ApiError;
 
 pub struct AppState {
     pub store: Store,
+    pub tools: ToolExecutor,
     pub aliases: AliasTable,
     pub header_timeout: Duration,
     pub idle_timeout: Duration,
@@ -22,12 +24,14 @@ pub struct AppState {
 impl AppState {
     pub fn new(
         store: Store,
+        tools: ToolExecutor,
         aliases: AliasTable,
         header_timeout: Duration,
         idle_timeout: Duration,
     ) -> Arc<Self> {
         Arc::new(Self {
             store,
+            tools,
             aliases,
             header_timeout,
             idle_timeout,

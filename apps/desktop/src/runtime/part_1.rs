@@ -24,6 +24,9 @@ pub enum Command {
     },
     SaveProvider(ProviderDraft),
     DeleteProvider(Uuid),
+    SaveTool(ToolDraft),
+    DeleteTool(Uuid),
+    SaveSystemPrompt(Option<String>),
     ImportClaude {
         paths: Vec<PathBuf>,
     },
@@ -64,6 +67,10 @@ pub enum UiEvent {
     Models(Vec<String>),
     Providers(Vec<ProviderEndpoint>),
     ProviderSaved,
+    Tools(Vec<ToolEndpoint>),
+    ToolSaved,
+    SystemPrompt(Option<String>),
+    SystemPromptSaved,
     Opened(ChatDetail),
     Created(ConversationItem),
     Accepted {

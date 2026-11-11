@@ -110,8 +110,11 @@ mod tests {
                         let _ = write_json(&mut socket, 401, r#"{"error":{"code":"unauthorized","message":"unauthorized"}}"#).await;
                         return;
                     }
-                    if line.starts_with("GET /api/providers") {
+                    if line.starts_with("GET /api/providers") || line.starts_with("GET /api/tools")
+                    {
                         let _ = write_json(&mut socket, 200, r#"{"data":[]}"#).await;
+                    } else if line.starts_with("GET /api/system-prompt") {
+                        let _ = write_json(&mut socket, 200, r#"{"content":null}"#).await;
                     } else if line.starts_with("GET /v1/models") {
                         let _ = write_json(
                             &mut socket,

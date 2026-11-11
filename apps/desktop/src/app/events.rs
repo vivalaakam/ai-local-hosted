@@ -56,6 +56,25 @@ impl ChatWindow {
                 self.close_provider_form();
                 self.banner = Some("Provider saved".into());
             }
+            UiEvent::Tools(tools) => {
+                let editing_gone = self
+                    .editing_tool
+                    .is_some_and(|id| !tools.iter().any(|row| row.id == id));
+                self.tools = tools;
+                if editing_gone {
+                    self.close_tool_form();
+                }
+            }
+            UiEvent::ToolSaved => {
+                self.close_tool_form();
+                self.banner = Some("Tool saved".into());
+            }
+            UiEvent::SystemPrompt(content) => {
+                self.system_prompt_text = Some(content.unwrap_or_default());
+            }
+            UiEvent::SystemPromptSaved => {
+                self.banner = Some("System prompt saved".into());
+            }
             UiEvent::Opened(detail) => {
                 self.upsert(detail.item.clone());
                 if self.selected == Some(detail.item.id) || self.selected.is_none() {
@@ -181,11 +200,14 @@ impl ChatWindow {
                 self.profile_form_open = false;
                 self.notice = None;
                 self.close_provider_form();
+                self.close_tool_form();
                 self.username.clear();
                 self.session_token_text = Some(String::new());
+                self.system_prompt_text = Some(String::new());
                 self.conversations.clear();
                 self.models.clear();
                 self.providers.clear();
+                self.tools.clear();
                 self.selected = None;
                 self.feed = Feed::default();
                 self.streaming = false;

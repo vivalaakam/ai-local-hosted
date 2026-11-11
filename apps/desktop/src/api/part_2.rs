@@ -148,6 +148,62 @@ impl Api {
         Err(error_from(response).await)
     }
 
+    pub async fn list_tools(&self) -> Result<Vec<ToolEndpoint>, ApiError> {
+        let body: ListBody<ToolBody> = self.get_json("/api/tools?include_source=1").await?;
+        Ok(body.data.into_iter().map(ToolBody::endpoint).collect())
+    }
+
+    pub async fn save_tool(&self, draft: &ToolDraft) -> Result<ToolEndpoint, ApiError> {
+        let (path, method) = if draft.update {
+            let Some(id) = draft.id else {
+                return Err(ApiError {
+                    status: 0,
+                    code: "invalid_request".into(),
+                    message: "missing tool id".into(),
+                });
+            };
+            (format!("/api/tools/{id}"), reqwest::Method::PATCH)
+        } else {
+            ("/api/tools".to_string(), reqwest::Method::POST)
+        };
+        let body: ToolBody = self.send_json(method, &path, tool_body(draft)).await?;
+        Ok(body.endpoint())
+    }
+
+    pub async fn delete_tool(&self, id: Uuid) -> Result<(), ApiError> {
+        let response = self
+            .http
+            .delete(self.url(&format!("/api/tools/{id}")))
+            .bearer_auth(&self.token)
+            .send()
+            .await
+            .map_err(transport)?;
+        if response.status().is_success() {
+            return Ok(());
+        }
+        Err(error_from(response).await)
+    }
+
+    pub async fn get_system_prompt(&self) -> Result<Option<String>, ApiError> {
+        let body: SystemPromptBody = self.get_json("/api/system-prompt").await?;
+        Ok(body.content.filter(|text| !text.trim().is_empty()))
+    }
+
+    pub async fn save_system_prompt(&self, content: Option<&str>) -> Result<(), ApiError> {
+        let response = self
+            .http
+            .put(self.url("/api/system-prompt"))
+            .bearer_auth(&self.token)
+            .json(&serde_json::json!({ "content": content }))
+            .send()
+            .await
+            .map_err(transport)?;
+        if response.status().is_success() {
+            return Ok(());
+        }
+        Err(error_from(response).await)
+    }
+
     pub async fn get_conversation(&self, id: Uuid) -> Result<ChatDetail, ApiError> {
         let body: ConversationBody = self.get_json(&format!("/api/conversations/{id}")).await?;
         Ok(body.detail())

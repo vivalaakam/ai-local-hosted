@@ -11,7 +11,7 @@ mod store;
 
 pub use api::{
     Api, ApiError, AuthTokens, ChatDetail, ChatMessage, ImportResult, ProviderDraft,
-    ProviderEndpoint,
+    ProviderEndpoint, ToolDraft, ToolEndpoint,
 };
 pub use batch::{BATCH_INTERVAL, DeltaBatch, TextBatch};
 pub use feed::{Bubble, Feed};

@@ -26,6 +26,41 @@ pub struct ProviderEndpoint {
     pub enabled: bool,
 }
 
+/// A catalog tool from `/api/tools`. System tools have `owner_user_id = None`.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct ToolEndpoint {
+    pub id: Uuid,
+    pub owner_user_id: Option<Uuid>,
+    pub slug: String,
+    pub name: String,
+    pub description: String,
+    pub parameters: String,
+    pub kind: String,
+    pub source: Option<String>,
+    pub enabled: bool,
+    pub model_name: String,
+}
+
+impl ToolEndpoint {
+    pub fn is_system(&self) -> bool {
+        self.owner_user_id.is_none()
+    }
+}
+
+/// Fields the tool form sends for create/update of user Rhai tools.
+#[derive(Debug, Clone)]
+pub struct ToolDraft {
+    pub id: Option<Uuid>,
+    pub slug: String,
+    pub name: String,
+    pub description: String,
+    pub parameters: String,
+    pub source: String,
+    pub enabled: bool,
+    pub update: bool,
+    pub reset_form: bool,
+}
+
 /// Fields the settings form sends. `token: None` leaves a stored secret in place on update.
 #[derive(Clone)]
 pub struct ProviderDraft {

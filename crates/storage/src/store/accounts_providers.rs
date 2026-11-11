@@ -93,26 +93,7 @@ impl Store {
         &self,
         user_id: Uuid,
     ) -> Result<SystemPromptLayers, StorageError> {
-        let rows = query::all(
-            &self.db,
-            "SELECT user_id, scope, content FROM system_prompts
-             WHERE (user_id = $1 AND scope IN ('assigned', 'self'))
-                OR (user_id = $2 AND scope = 'global')",
-            vec![Value::from(user_id), Value::from(LEGACY_USER_ID)],
-        )
-        .await?;
-        let mut layers = SystemPromptLayers::default();
-        for row in rows {
-            let scope: String = row.try_get("", "scope")?;
-            let content: String = row.try_get("", "content")?;
-            match scope.as_str() {
-                "global" => layers.global = Some(content),
-                "assigned" => layers.assigned = Some(content),
-                "self" => layers.own = Some(content),
-                _ => {}
-            }
-        }
-        Ok(layers)
+        layers_on(&self.db, user_id).await
     }
 
     pub async fn set_own_system_prompt(

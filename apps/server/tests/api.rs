@@ -21,3 +21,5 @@ include!("api/part_2.rs");
 include!("api/part_3.rs");
 include!("api/part_4.rs");
 include!("api/part_5.rs");
+include!("api/part_6.rs");
+include!("api/part_7.rs");

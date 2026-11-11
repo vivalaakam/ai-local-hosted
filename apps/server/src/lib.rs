@@ -8,6 +8,8 @@ mod oauth;
 mod providers;
 mod routes;
 mod state;
+mod tool_catalog;
+mod tools_api;
 mod turn;
 
 use std::collections::BTreeMap;
@@ -74,8 +76,11 @@ async fn prepare(config: &Config) -> Result<Arc<AppState>, StartupError> {
         .purge_response_states(7)
         .await
         .map_err(|err| StartupError::message(format!("database: {err}")))?;
+    let tools = alh_tools::ToolExecutor::new()
+        .map_err(|err| StartupError::message(format!("tools: {err}")))?;
     Ok(AppState::new(
         store,
+        tools,
         load_aliases(config.alias_path.as_deref()),
         config.provider_timeout,
         config.stream_idle,

@@ -6,7 +6,10 @@ use tokio::sync::mpsc::{UnboundedReceiver, UnboundedSender, unbounded_channel};
 use tokio::task::JoinHandle;
 use uuid::Uuid;
 
-use crate::api::{Api, AuthTokens, ChatDetail, ImportResult, ProviderDraft, ProviderEndpoint};
+use crate::api::{
+    Api, AuthTokens, ChatDetail, ImportResult, ProviderDraft, ProviderEndpoint, ToolDraft,
+    ToolEndpoint,
+};
 use crate::batch::{DeltaBatch, TextBatch};
 use crate::sse::{SseBuffer, StreamPiece};
 use crate::store::ConversationItem;

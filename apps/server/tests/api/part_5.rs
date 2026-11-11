@@ -6,7 +6,7 @@ async fn completions(
         return (axum::http::StatusCode::BAD_REQUEST, "stream required").into_response();
     }
     let model = body["model"].as_str().unwrap_or("").to_string();
-    let messages = body["messages"]
+    let transcript = body["messages"]
         .as_array()
         .map(|messages| {
             messages
@@ -23,12 +23,18 @@ async fn completions(
         })
         .unwrap_or_default();
     *stub.last_model.lock().unwrap() = model.clone();
-    *stub.last_messages.lock().unwrap() = messages.clone();
+    *stub.last_messages.lock().unwrap() = transcript;
     if model == "missing-upstream" {
         return (axum::http::StatusCode::NOT_FOUND, "missing").into_response();
     }
-    let content = body["messages"]
-        .as_array()
+    let messages = body["messages"].as_array();
+    if let Some(messages) = messages
+        && let Some(tool) = messages.iter().rev().find(|message| message["role"] == "tool")
+    {
+        let content = tool["content"].as_str().unwrap_or("");
+        return text_response(&format!("tool-result:{content}"));
+    }
+    let content = messages
         .and_then(|messages| messages.last())
         .and_then(|message| message["content"].as_str())
         .unwrap_or("");
@@ -41,6 +47,18 @@ async fn completions(
                     "id": "call_1",
                     "type": "function",
                     "function": {"name": "echo", "arguments": "{}"}
+                }]}),
+                Some("tool_calls"),
+            ),
+            Event::default().data("[DONE]"),
+        ]),
+        "USE_TIME" => sse(vec![
+            chunk(
+                json!({"tool_calls": [{
+                    "index": 0,
+                    "id": "call_time",
+                    "type": "function",
+                    "function": {"name": "current_time", "arguments": "{}"}
                 }]}),
                 Some("tool_calls"),
             ),

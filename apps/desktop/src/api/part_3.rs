@@ -190,6 +190,68 @@ fn provider_body(draft: &ProviderDraft) -> serde_json::Value {
     body
 }
 
+#[derive(Deserialize)]
+struct ToolBody {
+    id: Uuid,
+    #[serde(default)]
+    owner_user_id: Option<Uuid>,
+    #[serde(default)]
+    slug: String,
+    #[serde(default)]
+    name: String,
+    #[serde(default)]
+    description: String,
+    #[serde(default)]
+    parameters: serde_json::Value,
+    #[serde(default)]
+    kind: String,
+    #[serde(default)]
+    source: Option<String>,
+    #[serde(default = "default_enabled")]
+    enabled: bool,
+    #[serde(default)]
+    model_name: String,
+}
+
+impl ToolBody {
+    fn endpoint(self) -> ToolEndpoint {
+        ToolEndpoint {
+            id: self.id,
+            owner_user_id: self.owner_user_id,
+            slug: self.slug,
+            name: self.name,
+            description: self.description,
+            parameters: self.parameters.to_string(),
+            kind: self.kind,
+            source: self.source,
+            enabled: self.enabled,
+            model_name: self.model_name,
+        }
+    }
+}
+
+fn tool_body(draft: &ToolDraft) -> serde_json::Value {
+    let parameters = serde_json::from_str::<serde_json::Value>(&draft.parameters)
+        .unwrap_or_else(|_| serde_json::json!({"type":"object","properties":{}}));
+    let mut body = serde_json::json!({
+        "name": draft.name.trim(),
+        "description": draft.description,
+        "parameters": parameters,
+        "source": draft.source,
+        "enabled": draft.enabled,
+    });
+    if !draft.update {
+        body["slug"] = serde_json::json!(draft.slug.trim());
+    }
+    body
+}
+
+#[derive(Deserialize)]
+struct SystemPromptBody {
+    #[serde(default)]
+    content: Option<String>,
+}
+
 #[cfg(test)]
 mod tests {
     use super::ProviderBody;
